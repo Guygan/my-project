@@ -32,13 +32,17 @@ def generate_launch_description():
         executable='robot_state_publisher',
         name='robot_state_publisher',
         output='screen',
+        # =================================================================================
+        # THE FIX IS HERE: Changed 'false' to use the LaunchConfiguration variable,
+        # which correctly handles the boolean value.
         parameters=[{'robot_description': robot_description_content, 'use_sim_time': use_sim_time}]
+        # =================================================================================
     )
 
     # Gazebo Sim Server
     gz_sim_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(ros_gz_sim_pkg, 'launch', 'gz_sim.launch.py')),
-        launch_arguments={'gz_args': world}.items()
+        launch_arguments={'gz_args': [world, ' -r', '-s']}.items() 
     )
 
     # Spawn Robot Node
@@ -62,8 +66,8 @@ def generate_launch_description():
     return LaunchDescription([
         declare_use_sim_time_arg,
         declare_world_arg,
-        gz_sim_server,
         robot_state_publisher,
+        gz_sim_server,
         spawn_robot_node,
         gz_ros_bridge_node,
     ])

@@ -1,5 +1,4 @@
-# nav2_params.yaml
-# Organized and corrected version for Nav2 configuration.
+# nav2_params.yaml (Final Corrected Version)
 
 amcl:
   ros__parameters:
@@ -21,39 +20,98 @@ map_server:
 
 planner_server:
   ros__parameters:
-    use_sim_time: true
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      tolerance: 0.125
+      allow_unknown: true
+      max_planning_time: 2.0
 
 controller_server:
   ros__parameters:
     use_sim_time: true
-    controller_frequency: 20.0
+    controller_frequency: 10.0
+    odom_topic: "/odom"
+    cmd_vel_out_topic: "cmd_vel_nav"
+
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
     controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+      stateful: false
+
+    # ===================================================================
+    # ✨ DWB Controller Configuration ✨
+    # ===================================================================
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
-      odom_topic: "/odom"
-      critics:
-        [
-          "RotateToGoal",
-          "Oscillation",
-          "BaseObstacle",
-          "GoalAlign",
-          "PathAlign",
-          "PathDist",
-        ]
-      BaseObstacle: { scale: 0.02 }
-      PathAlign: { scale: 32.0, forward_point_distance: 0.1 }
-      PathDist: { scale: 24.0 }
-      GoalAlign: { scale: 24.0, forward_point_distance: 0.1 }
-      RotateToGoal: { scale: 32.0, slowing_factor: 5.0, lookahead_time: -1.0 }
+      debug_trajectory_details: true
+      min_vel_x: -0.2  # อนุญาตให้ถอยหลังได้ (ถ้าต้องการ)
+      min_vel_y: 0.0
+      max_vel_x: 0.26  # ควรจะสอดคล้องกับ max_velocity ของ velocity_smoother
+      max_vel_y: 0.0
+      max_vel_theta: 1.0
+      min_speed_xy: 0.05
+      max_speed_xy: 0.26
+      min_speed_theta: 0.2
+
+      # Acceleration Limits
+      acc_lim_x: 2.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 3.2
+      decel_lim_x: -2.5
+      decel_lim_y: 0.0
+      decel_lim_theta: -3.2
+
+      # Goal Tolerance
+      xy_goal_tolerance: 0.25
+      trans_stopped_velocity: 0.1
+      theta_stopped_velocity: 0.1
+      
+      # Forward Simulation Parameters
+      sim_time: 1.7 # เวลาที่จะจำลองเส้นทางไปข้างหน้า (วินาที)
+      sim_granularity: 0.025
+      vx_samples: 20
+      vy_samples: 5
+      vtheta_samples: 20
+
+      # Trajectory Scoring using Critics
+      # นี่คือหัวใจของ DWB เราต้องบอกว่าจะให้คะแนนเส้นทางแต่ละเส้นอย่างไร
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+      
+      # --- Weights for each critic ---
+      BaseObstacle.scale: 0.02
+      PathAlign.scale: 32.0
+      PathAlign.forward_point_distance: 0.1
+      GoalAlign.scale: 24.0
+      GoalAlign.forward_point_distance: 0.1
+      PathDist.scale: 32.0
+      GoalDist.scale: 24.0
+      RotateToGoal.scale: 32.0
+      Oscillation.scale: 0.0
 
 bt_navigator:
   ros__parameters:
     use_sim_time: true
     default_bt_xml_filename: "/opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/navigate_w_replanning_and_recovery.xml"
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: true
+    smoothing_frequency: 20.0
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.26, 0.0, 1.0]
+    min_velocity: [0.0, 0.0, -1.0]
+    accel_lim_v: [2.5, 0.0, 3.2]
 
 behavior_server:
   ros__parameters:
@@ -66,7 +124,6 @@ docking_server:
     my_simple_dock:
       plugin: "opennav_docking::SimpleChargingDock"
 
-# Corrected Costmap Configuration
 global_costmap:
   ros__parameters:
     use_sim_time: true
@@ -76,13 +133,14 @@ global_costmap:
     plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
     static_layer:
       plugin: "nav2_costmap_2d::StaticLayer"
+      map_subscribe_transient_local: true
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       observation_sources: "scan"
-      scan: { topic: "/scan_corrected", data_type: "LaserScan" }
+      scan: { topic: "/scan_corrected", data_type: "LaserScan", clearing: true, marking: true }
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.4
+      inflation_radius: 0.2
 
 local_costmap:
   ros__parameters:
@@ -93,39 +151,51 @@ local_costmap:
     width: 3
     height: 3
     resolution: 0.05
-    plugins: ["obstacle_layer", "inflation_layer"]
+    # ===================================================================
+    # ✨ THE FINAL FIX IS HERE ✨
+    # ===================================================================
+    plugins: ["obstacle_layer", "inflation_layer"] # Re-enable obstacle_layer
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
+      # This parameter tells the costmap to always clear obstacles that appear
+      # inside the robot's own footprint, solving the self-detection issue.
+      footprint_clearing_enabled: true
       observation_sources: "scan"
-      scan: { topic: "/scan_corrected", data_type: "LaserScan" }
+      scan: { topic: "/scan_corrected", data_type: "LaserScan", clearing: true, marking: true }
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.4
+      inflation_radius: 0.15
+      cost_scaling_factor: 3.0
 
 collision_monitor:
   ros__parameters:
     use_sim_time: true
     base_frame_id: "base_footprint"
     odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    cmd_vel_out_topic: "cmd_vel"
     transform_tolerance: 0.5
     source_timeout: 5.0
-
-    # Declare polygon names
-    polygons: ["Footprint"]
-
-    # Define the "Footprint" polygon object
-    Footprint:
+    polygons: ["PolygonStop", "PolygonSlow"]
+    PolygonStop:
       type: "polygon"
+      points: "[[0.4, 0.3], [0.4, -0.3], [0.0, -0.3], [0.0, 0.3]]"
       action_type: "stop"
-      points: "[[0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25]]"
       min_points: 4
       visualize: true
-      polygon_pub_topic: "footprint_polygon"
-
+      polygon_pub_topic: "polygon_stop"
+    PolygonSlow:
+      type: "polygon"
+      points: "[[0.6, 0.4], [0.6, -0.4], [0.0, -0.4], [0.0, 0.4]]"
+      action_type: "slowdown"
+      min_points: 4
+      slowdown_ratio: 0.3
+      visualize: true
+      polygon_pub_topic: "polygon_slowdown"
     observation_sources: ["scan"]
     scan:
+      type: "scan"
       topic: "/scan_corrected"
-      type: "scan" # Use 'type' here, not 'data_type'
 
 lifecycle_manager_navigation:
   ros__parameters:
@@ -139,4 +209,5 @@ lifecycle_manager_navigation:
       - "behavior_server"
       - "bt_navigator"
       - "collision_monitor"
+      - "velocity_smoother"
       - "docking_server"

@@ -1,4 +1,4 @@
-# my_robot_description/launch/robot_localization.launch.py
+# my_robot_description/launch/robot_localization.launch.py (Corrected Version)
 
 import os
 from ament_index_python.packages import get_package_share_directory
@@ -7,16 +7,9 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.actions import LifecycleNode
 
 def generate_launch_description():
-    """
-    Launch file to run the full robot simulation stack, including:
-    - Gazebo with the specified world.
-    - Robot localization using an EKF filter.
-    - The Nav2 navigation stack.
-    - RViz for visualization.
-    - Keyboard teleoperation in a separate terminal.
-    """
     # --- 1. Package and File Path Definitions ---
     pkg_dir = get_package_share_directory('my_robot_description')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
@@ -35,13 +28,11 @@ def generate_launch_description():
 
     # --- 3. Node and Action Definitions ---
 
-    # Action to launch Gazebo and spawn the robot
     start_gazebo_and_robot = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(pkg_dir, 'launch', 'gazebo.launch.py')),
         launch_arguments={'world': world, 'use_sim_time': use_sim_time}.items()
     )
 
-    # Node for the frame fixer to correct laser scan data
     frame_fixer = Node(
         package='my_robot_description',
         executable='frame_fixer',
@@ -50,7 +41,6 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_sim_time}]
     )
 
-    # Node for EKF from robot_localization to fuse sensor data
     robot_localization = Node(
         package='robot_localization',
         executable='ekf_node',
@@ -59,17 +49,36 @@ def generate_launch_description():
         parameters=[ekf_config_path, {'use_sim_time': use_sim_time}]
     )
 
-    # Action to launch the Nav2 stack
+    velocity_smoother_node = LifecycleNode(
+        package='nav2_velocity_smoother',
+        executable='velocity_smoother',
+        name='velocity_smoother',
+        namespace='',  
+        output='screen',
+        parameters=[params_file],
+        remappings=[('cmd_vel', 'cmd_vel_nav'),
+                    ('cmd_vel_smoothed', 'cmd_vel')]
+    )
+
+    collision_monitor_node = LifecycleNode(
+        package='nav2_collision_monitor',
+        executable='collision_monitor',
+        name='collision_monitor',
+        namespace='',
+        output='screen',
+        parameters=[params_file]
+    )
+
     start_nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(nav2_bringup_dir, 'launch', 'bringup_launch.py')),
         launch_arguments={
             'map': map_file,
             'use_sim_time': use_sim_time,
-            'params_file': params_file
+            'params_file': params_file,
+            'use_velocity_smoother': 'False'
         }.items()
     )
 
-    # Node to launch RViz with a pre-configured view
     start_rviz = Node(
         package='rviz2',
         executable='rviz2',
@@ -80,40 +89,29 @@ def generate_launch_description():
         output='screen'
     )
 
-    # Node to launch keyboard teleop in a new terminal window
     keyboard_teleop = Node(
         package='teleop_twist_keyboard',
         executable='teleop_twist_keyboard',
         name='teleop_twist_keyboard',
         output='screen',
-        prefix='xterm -e'
+        prefix='xterm -e',
+        # ✨ KEY FIX: Remap to the final cmd_vel topic
+        remappings=[('cmd_vel', '/cmd_vel')]
     )
 
     # --- 4. Assemble Launch Description ---
     return LaunchDescription([
-        # Declare launch arguments
-        DeclareLaunchArgument(
-            'use_sim_time',
-            default_value='true',
-            description='Use simulation (Gazebo) clock if true'),
-        DeclareLaunchArgument(
-            'world',
-            default_value=world_path,
-            description='Full path to the world file to load'),
-        DeclareLaunchArgument(
-            'map',
-            default_value=map_path,
-            description='Full path to the map file for Nav2'),
-        DeclareLaunchArgument(
-            'params_file',
-            default_value=nav2_params_path,
-            description='Full path to the Nav2 parameters file'),
+        DeclareLaunchArgument('use_sim_time', default_value='true'),
+        DeclareLaunchArgument('world', default_value=world_path),
+        DeclareLaunchArgument('map', default_value=map_path),
+        DeclareLaunchArgument('params_file', default_value=nav2_params_path),
 
-        # Add nodes and actions to the launch description
         start_gazebo_and_robot,
         frame_fixer,
         robot_localization,
         start_nav2,
         start_rviz,
+        velocity_smoother_node,   
+        collision_monitor_node,  # ✨ KEY FIX: Enabled this node
         keyboard_teleop
     ])
