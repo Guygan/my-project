@@ -3,9 +3,11 @@ Panels:
     Help Height: 70
     Name: Displays
     Property Tree Widget:
-      Expanded: ~
+      Expanded:
+        - /LaserScan1
+        - /LaserScan1/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 70
+    Tree Height: 339
   - Class: nav2_rviz_plugins/Navigation 2
     Name: Navigation 2
 Visualization Manager:
@@ -144,7 +146,7 @@ Visualization Manager:
         Durability Policy: Volatile
         Filter size: 10
         History Policy: Keep Last
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
         Value: /scan_corrected
       Use Fixed Frame: true
       Use rainbow: true
@@ -172,6 +174,20 @@ Visualization Manager:
         Value: /map_updates
       Use Timestamp: false
       Value: true
+    - Alpha: 0.5
+      Buffer Length: 1
+      Class: rviz_default_plugins/Range
+      Color: 255; 255; 255
+      Enabled: true
+      Name: Range
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /sonar_front
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -186,6 +202,11 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: goal_pose
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -216,12 +237,12 @@ Visualization Manager:
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 808
+  Height: 567
   Hide Left Dock: false
   Hide Right Dock: false
   Navigation 2:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000001af000002cafc0200000002fb000000100044006900730070006c006100790073010000003f000000cc000000cc00fffffffb00000018004e0061007600690067006100740069006f006e002000320100000111000001f8000001f800ffffff0000034c000002ca00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
-  Width: 1281
-  X: 0
-  Y: 0
+  QMainWindow State: 000000ff00000000fd0000000100000000000001af000001d9fc0200000002fb000000100044006900730070006c006100790073010000003f000001d9000000cc00fffffffb00000018004e0061007600690067006100740069006f006e002000320000000111000001f8000001f800ffffff0000020b000001d900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Width: 960
+  X: 1683
+  Y: 261

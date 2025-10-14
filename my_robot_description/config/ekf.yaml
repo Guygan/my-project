@@ -1,33 +1,35 @@
-# In config/ekf.yaml (Verified Version)
-
 ekf_filter_node:
   ros__parameters:
-    # Freq, sensor timeout, etc.
-    frequency: 30.0
+    use_sim_time: true
+    
+    # ลดความถี่ลงเพื่อแก้ปัญหา "Failed to meet update rate!"
+    frequency: 20.0
     sensor_timeout: 0.1
     two_d_mode: true
 
-    use_sim_time: true
-
-    # Frames
-    map_frame: map
+    # --- แก้ไขส่วน TF Frames ให้ถูกต้อง ---
+    # EKF มีหน้าที่สร้าง odom -> base_link, ไม่ควรยุ่งกับ map frame
+    publish_tf: true
+    map_frame: map # <--- (แก้ไข) แก้ไขจุดที่สำคัญที่สุด
     odom_frame: odom
     base_link_frame: base_footprint
     world_frame: odom
 
-    # Sensor configuration (odom0, imu0)
+    # --- ปรับปรุงการ Fusion ข้อมูล Sensor ---
+    # ให้ Odometry รับผิดชอบความเร็วเชิงเส้น และ IMU รับผิดชอบความเร็วเชิงมุม
     odom0: /odom
-    odom0_config: [false, false, false,
-                   false, false, false,
-                   true, true, false,
-                   false, false, true,
-                   false, false, false]
+    odom0_config: [false, false, false,  # x, y, z
+                   false, false, false,  # roll, pitch, yaw
+                   true,  true,  false,  # vx, vy, vz
+                   false, false, true,   # vroll, vpitch, vyaw
+                   false, false, false]  # ax, ay, az
     odom0_differential: false
 
     imu0: /imu
-    imu0_config: [false, false, false,
-                  true, true, true,
-                  false, false, false,
-                  false, false, false,
-                  false, false, false] 
+    imu0_config: [false, false, false,   # x, y, z
+                  false, false, false,   # roll, pitch, yaw
+                  false, false, false,   # vx, vy, vz
+                  false, false, true,    # vroll, vpitch, vyaw
+                  false, false, false]   # ax, ay, az
     imu0_differential: false
+    imu0_remove_gravitational_acceleration: true

@@ -30,7 +30,7 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: true
-    controller_frequency: 10.0
+    controller_frequency: 20.0
     odom_topic: "/odom"
     cmd_vel_out_topic: "cmd_vel_nav"
 
@@ -78,18 +78,18 @@ controller_server:
       theta_stopped_velocity: 0.1
       
       # Forward Simulation Parameters
-      sim_time: 1.7 # เวลาที่จะจำลองเส้นทางไปข้างหน้า (วินาที)
+      sim_time: 1.0 # เวลาที่จะจำลองเส้นทางไปข้างหน้า (วินาที)
       sim_granularity: 0.025
-      vx_samples: 20
+      vx_samples: 8
       vy_samples: 5
-      vtheta_samples: 20
+      vtheta_samples: 12
 
       # Trajectory Scoring using Critics
       # นี่คือหัวใจของ DWB เราต้องบอกว่าจะให้คะแนนเส้นทางแต่ละเส้นอย่างไร
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       
       # --- Weights for each critic ---
-      BaseObstacle.scale: 0.02
+      BaseObstacle.scale: 32.0
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
       GoalAlign.scale: 24.0
@@ -145,26 +145,28 @@ global_costmap:
 local_costmap:
   ros__parameters:
     use_sim_time: true
-    global_frame: "odom"
+    
+    # === ✨ บอกให้ Local Costmap ใช้อ้างอิงกับ Odom แทน Map ✨ ===
+    global_frame: "odom" 
+    
     robot_base_frame: "base_footprint"
-    footprint: "[[0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25]]"
+
+    # === ✨ และเอา Static Layer ที่ต้องใช้ Map ออกไป ✨ ===
+    plugins: ["obstacle_layer", "inflation_layer"]
+
     width: 3
     height: 3
     resolution: 0.05
-    # ===================================================================
-    # ✨ THE FINAL FIX IS HERE ✨
-    # ===================================================================
-    plugins: ["obstacle_layer", "inflation_layer"] # Re-enable obstacle_layer
+    
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
-      # This parameter tells the costmap to always clear obstacles that appear
-      # inside the robot's own footprint, solving the self-detection issue.
-      footprint_clearing_enabled: true
+      footprint_clearing_enabled: false
       observation_sources: "scan"
       scan: { topic: "/scan_corrected", data_type: "LaserScan", clearing: true, marking: true }
+      
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.15
+      inflation_radius: 0.1
       cost_scaling_factor: 3.0
 
 collision_monitor:

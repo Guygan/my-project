@@ -24,11 +24,15 @@ setup(
     maintainer_email='guygan2002@gmail.com',
     description='Robot with RViz and Gazebo using ROS 2',
     license='MIT',
+    
     tests_require=['pytest'],
     entry_points={
     'console_scripts': [
         'laser_to_sonar = my_robot_description.laser_to_sonar_node:main',
         'frame_fixer = my_robot_description.frame_fixer:main',
+        'autonomous_explorer = my_robot_description.autonomous_explorer:main',
+        'save_all = my_robot_description.save_all:main',
+
     ],
 },
 )
