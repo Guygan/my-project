@@ -24,15 +24,16 @@ setup(
     maintainer_email='guygan2002@gmail.com',
     description='Robot with RViz and Gazebo using ROS 2',
     license='MIT',
-    
     tests_require=['pytest'],
     entry_points={
     'console_scripts': [
-        'laser_to_sonar = my_robot_description.laser_to_sonar_node:main',
+        'laser_to_sonar_node = my_robot_description.laser_to_sonar_node:main',
         'frame_fixer = my_robot_description.frame_fixer:main',
-        'autonomous_explorer = my_robot_description.autonomous_explorer:main',
-        'save_all = my_robot_description.save_all:main',
-
+        'stuck_detector_node = my_robot_description.stuck_detector_node:main',
+        'interactive_stuck_detector = my_robot_description.interactive_stuck_detector:main',
+        'goal_monitor_node = my_robot_description.goal_monitor_node:main',
+        'recalculate_path_node = my_robot_description.recalculate_path_node:main',
+        'return_to_home_node = my_robot_description.return_to_home_node:main',
     ],
 },
 )

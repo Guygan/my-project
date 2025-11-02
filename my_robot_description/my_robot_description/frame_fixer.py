@@ -1,56 +1,58 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from rosgraph_msgs.msg import Clock
 
-class FrameFixerNode(Node):
+class ScanFrameFixer(Node):
+
     def __init__(self):
         super().__init__('scan_frame_fixer')
-        self.publisher_ = self.create_publisher(LaserScan, '/scan_corrected', 10)
+
+        # Frame ID ที่ถูกต้อง (ตามที่กำหนดใน URDF และ robot_state_publisher)
+        # เราต้องการแค่ 'lidar_link' ไม่ใช่ 'my_robot/base_footprint/lidar_link'
+        self.correct_frame_id = 'lidar_link' 
+
+        # 1. สร้าง Publisher เพื่อส่งข้อมูลที่แก้ไขแล้วไปยัง /scan_corrected
+        self.publisher_ = self.create_publisher(
+            LaserScan, 
+            '/scan_corrected',  # Topic ที่ amcl และ costmaps รอฟัง
+            10)
+
+        # 2. สร้าง Subscriber เพื่อรับข้อมูลดิบจาก /scan (จาก Gazebo)
         self.subscription = self.create_subscription(
             LaserScan,
-            '/scan',  # ต้นฉบับจาก Gazebo bridge
+            '/scan',             # Topic ดิบจาก Gazebo
             self.listener_callback,
             10)
 
-        # ✅ subscribe เวลา simulation โดยตรง
-        self.clock_subscription = self.create_subscription(
-            Clock,
-            '/clock',
-            self.clock_callback,
-            10)
+        self.get_logger().info('=====================================================')
+        self.get_logger().info('=== Scan Frame Fixer (Relay) node started. ==')
+        self.get_logger().info(f'Subscribing to /scan...')
+        self.get_logger().info(f'Publishing to /scan_corrected with NEW frame_id = "{self.correct_frame_id}"')
+        self.get_logger().info('=====================================================')
+        self.logged_once = False
 
-        self.sim_time = None
-        self.get_logger().info('✅ Scan Frame Fixer node started with simulation clock support.')
+    def listener_callback(self, msg):
+        # 3. นี่คือหัวใจสำคัญ:
+        # เมื่อได้รับข้อความ ให้ "เขียนทับ" frame_id ที่ผิด 
+        # ด้วย frame_id ที่ถูกต้อง
+        original_frame = msg.header.frame_id
+        msg.header.frame_id = self.correct_frame_id
 
-    def clock_callback(self, msg: Clock):
-        self.sim_time = msg.clock  # เก็บ simulation time ล่าสุดไว้
-
-    def listener_callback(self, msg: LaserScan):
-        # ✅ แก้ frame_id
-        msg.header.frame_id = 'lidar_link'
-
-        # ✅ ใช้เวลาจำลองจริง ถ้ามี
-        if self.sim_time is not None:
-            msg.header.stamp = self.sim_time
-        else:
-            # fallback — ใช้เวลาปัจจุบันของ node (เผื่อช่วงแรกยังไม่มี clock)
-            msg.header.stamp = self.get_clock().now().to_msg()
-
+        # 4. Publish ข้อความที่แก้ไขแล้วออกไป
         self.publisher_.publish(msg)
+
+        # (Log แค่ครั้งเดียวเพื่อไม่ให้รก terminal)
+        if not self.logged_once:
+            self.get_logger().info(f'>>> Successfully fixed frame_id from "{original_frame}" to "{self.correct_frame_id}"')
+            self.logged_once = True
 
 def main(args=None):
     rclpy.init(args=args)
-    node = FrameFixerNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+    scan_frame_fixer = ScanFrameFixer()
+    rclpy.spin(scan_frame_fixer)
 
+    scan_frame_fixer.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

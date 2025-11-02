@@ -1,4 +1,3 @@
-#slam_params.yaml
 slam_toolbox:
   ros__parameters:
     odom_frame: odom
@@ -8,7 +7,6 @@ slam_toolbox:
     use_sim_time: true
     resolution: 0.05
     map_update_interval: 1.0
-    map_file_name: "" 
     mode: mapping
     solver_plugin: "solver_plugins::CeresSolver"
     transform_publish_period: 0.05

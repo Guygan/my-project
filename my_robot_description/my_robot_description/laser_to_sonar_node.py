@@ -1,101 +1,135 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import LaserScan, Range
-import numpy as np
-from rclpy.qos import QoSProfile, HistoryPolicy, ReliabilityPolicy
+from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
+from std_msgs.msg import Empty, Float32
+import math
+import time
 
+# --- ค่าคงที่ของโซนาร์ ---
+SONAR_HALF_ANGLE_RAD = 0.4637  # 26.57 องศา (ประมาณ tan(0.5))
+STOP_DISTANCE = 0.5  # (50 cm)
+WARN_DISTANCE = 1.0  # (100 cm)
+# --- Topic ที่ Nav2 ส่งคำสั่งมา (แก้ไขแล้ว) ---
+NAV_CMD_VEL_TOPIC = '/cmd_vel_smoothed' # ✨ แก้ไขจาก /cmd_vel_nav
+# --- Topic ที่จะส่งคำสั่งสุดท้ายไปให้หุ่นยนต์ ---
+ROBOT_CMD_VEL_TOPIC = '/cmd_vel'
+# ------------------------------------
 
 class LaserToSonarNode(Node):
+
     def __init__(self):
         super().__init__('laser_to_sonar_node')
+        self.get_logger().info(f'Laser to Sonar Node started. Listening to {NAV_CMD_VEL_TOPIC}, Publishing to {ROBOT_CMD_VEL_TOPIC}')
 
-        # --- Parameters (เหลือเฉพาะพารามิเตอร์ที่จำเป็น) ---
-        # ไม่ต้องประกาศ input_topic แล้ว เพราะ ROS2 remap ได้โดยตรงจาก launch file
-        self.declare_parameter('output_topic', '/sonar_front')
-        self.declare_parameter('field_of_view_deg', 30.0)
+        # --- สถานะของโซนาร์ ---
+        self.min_sonar_dist = float('inf')
+        self.warn_triggered = False
+        self.stop_triggered = False
+        self.last_nav_cmd_vel = Twist() # เก็บคำสั่งล่าสุดจาก Nav2
 
-        output_topic = self.get_parameter('output_topic').get_parameter_value().string_value
-        self.field_of_view_rad = np.deg2rad(
-            self.get_parameter('field_of_view_deg').get_parameter_value().double_value
-        )
+        # --- Topics ---
+        # ✨ แก้ไข Topic ที่ Subscribe
+        self.cmd_vel_sub = self.create_subscription(
+            Twist, NAV_CMD_VEL_TOPIC, self.nav_cmd_vel_callback, 10)
 
-        # QoS สำหรับข้อมูลจากเซ็นเซอร์
-        sensor_qos_profile = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            history=HistoryPolicy.KEEP_LAST,
-            depth=1
-        )
+        # Scan subscriber (ใช้ corrected scan)
+        self.scan_sub = self.create_subscription(
+            LaserScan, '/scan_corrected', self.scan_callback, 10)
 
-        # ✅ Subscribe โดยตรงไปยัง /scan (สามารถ remap ได้จาก launch)
-        self.subscription = self.create_subscription(
-            LaserScan,
-            '/scan',  # จะถูก remap เป็น /scan_corrected โดย launch file
-            self.scan_callback,
-            qos_profile=sensor_qos_profile
-        )
+        # Publisher ไปยังหุ่นยนต์
+        self.cmd_vel_pub = self.create_publisher(Twist, ROBOT_CMD_VEL_TOPIC, 10)
+        # Publisher สำหรับส่งสัญญาณหยุด (ให้ interactive_stuck_detector)
+        self.stop_trigger_pub = self.create_publisher(Empty, '/sonar_stop_trigger', 10)
+        # Publisher สำหรับส่งระยะทางที่วัดได้ (ให้ interactive_stuck_detector)
+        self.min_dist_pub = self.create_publisher(Float32, '/sonar_min_distance', 10)
 
-        # ✅ Publisher สำหรับส่งข้อมูล sonar
-        self.publisher_ = self.create_publisher(Range, output_topic, 10)
-
-        self.get_logger().info(
-            f"✅ Node started. Listening to '/scan' (remapped if specified), publishing to '{output_topic}'."
-        )
+    def nav_cmd_vel_callback(self, msg):
+        """เก็บคำสั่งล่าสุดที่ได้รับจาก Nav2"""
+        self.last_nav_cmd_vel = msg
 
     def scan_callback(self, msg: LaserScan):
-        """แปลงข้อมูลจาก LaserScan → Range (จำลอง sonar ด้านหน้า)"""
-        num_scans = len(msg.ranges)
-        if num_scans == 0:
-            return
+        """ประมวลผล LaserScan เพื่อหาระยะที่ใกล้ที่สุดในกรวยโซนาร์"""
+        min_dist = float('inf')
+        center_index = len(msg.ranges) // 2
+        # คำนวณ index ซ้ายและขวาที่ครอบคลุมมุม SONAR_HALF_ANGLE_RAD
+        angle_increment = msg.angle_increment
+        indices_per_side = int(math.ceil(SONAR_HALF_ANGLE_RAD / angle_increment))
 
-        # --- กำหนดขอบเขตมุมมอง (Field of View) ---
-        center_index = num_scans // 2
-        fov_half_angle_rad = self.field_of_view_rad / 2.0
-        scans_per_radian = num_scans / (msg.angle_max - msg.angle_min)
-        fov_scans = int(fov_half_angle_rad * scans_per_radian)
-        start_index = max(0, center_index - fov_scans)
-        end_index = min(num_scans - 1, center_index + fov_scans)
+        start_index = max(0, center_index - indices_per_side)
+        end_index = min(len(msg.ranges) - 1, center_index + indices_per_side)
 
-        # --- ดึงค่าระยะเฉพาะในช่วงมุมที่กำหนด ---
-        ranges_in_fov = msg.ranges[start_index:end_index + 1]
-        valid_ranges = [r for r in ranges_in_fov if np.isfinite(r) and r >= msg.range_min]
-
-        # --- หาค่าระยะที่ใกล้ที่สุด ---
-        min_distance = msg.range_max
+        # หาระยะที่ใกล้ที่สุดในกรวย โดยไม่สนใจค่า 0 หรือ inf
+        valid_ranges = [r for r in msg.ranges[start_index:end_index+1] if r > 0.0 and not math.isinf(r)]
         if valid_ranges:
-            min_distance = min(valid_ranges)
+            min_dist = min(valid_ranges)
 
-        # --- สร้างข้อความประเภท Range ---
-        range_msg = Range()
-        range_msg.header.stamp = self.get_clock().now().to_msg()
+        self.min_sonar_dist = min_dist
+        # Publish ระยะทางที่วัดได้
+        min_dist_msg = Float32()
+        min_dist_msg.data = float(self.min_sonar_dist) # แปลงเป็น float ปกติ
+        self.min_dist_pub.publish(min_dist_msg)
 
-        # ✅ ใช้ frame_id เดิมจาก LaserScan เพื่อให้ TF สอดคล้องกับ lidar_link
-        range_msg.header.frame_id = msg.header.frame_id
+        # --- ตรรกะการตัดสินใจ ---
+        output_cmd = self.last_nav_cmd_vel # เริ่มต้นด้วยคำสั่งจาก Nav2
 
-        range_msg.radiation_type = Range.INFRARED
-        range_msg.field_of_view = self.field_of_view_rad
-        range_msg.min_range = msg.range_min
-        range_msg.max_range = msg.range_max
-        range_msg.range = float(min_distance)
+        if self.min_sonar_dist <= STOP_DISTANCE:
+            # --- โหมดหยุด ---
+            if not self.stop_triggered:
+                self.get_logger().error(f'SONAR: STOP! Obstacle at {self.min_sonar_dist:.2f}m')
+                self.stop_trigger_pub.publish(Empty()) # ส่งสัญญาณหยุดแค่ครั้งแรก
+                self.stop_triggered = True
+            if self.warn_triggered:
+                 self.warn_triggered = False # ออกจากโหมดเตือน
+            # ส่งคำสั่งหยุด (Twist ว่างๆ คือหยุด)
+            output_cmd = Twist()
 
-        # --- ส่งข้อมูลออก ---
-        self.publisher_.publish(range_msg)
+        elif self.min_sonar_dist <= WARN_DISTANCE:
+            # --- โหมดเตือน (แต่ไม่หยุด) ---
+            if not self.warn_triggered:
+                self.get_logger().warn(f'SONAR: WARNING! Obstacle at {self.min_sonar_dist:.2f}m')
+                self.warn_triggered = True
+            if self.stop_triggered:
+                 self.get_logger().info('SONAR: Obstacle moved > STOP distance.')
+                 self.stop_triggered = False # ออกจากโหมดหยุด
+            # output_cmd ยังคงเป็นคำสั่งจาก Nav2 (ไม่แก้ไข)
+
+        else:
+            # --- โหมดปกติ (ทางโล่ง) ---
+            if self.stop_triggered or self.warn_triggered:
+                self.get_logger().info('SONAR: Path is clear.')
+            self.stop_triggered = False
+            self.warn_triggered = False
+            # output_cmd ยังคงเป็นคำสั่งจาก Nav2 (ไม่แก้ไข)
+
+        # --- Publish Command (ไม่ว่าจะเป็นคำสั่งเดิม หรือคำสั่งหยุด) ---
+        self.cmd_vel_pub.publish(output_cmd)
 
 
 def main(args=None):
     rclpy.init(args=args)
     node = LaserToSonarNode()
     try:
-        rclpy.spin(node)
+        # ใช้ MultiThreadedExecutor เผื่อมี Callback อื่นๆ ในอนาคต
+        executor = rclpy.executors.MultiThreadedExecutor()
+        executor.add_node(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
-        # 🔧 ตรวจสอบก่อน shutdown เพื่อป้องกัน double shutdown
+        # ส่งคำสั่งหยุดสุดท้ายก่อนปิด Node
+        stop_cmd = Twist()
+        # ตรวจสอบว่า publisher ยังใช้ได้ไหมก่อน publish
+        if node and node.cmd_vel_pub and not node.cmd_vel_pub.is_destroyed:
+             node.get_logger().info("Sending final stop command...")
+             node.cmd_vel_pub.publish(stop_cmd)
+             time.sleep(0.1) # รอเล็กน้อยให้ข้อความถูกส่ง
+
+        if node and rclpy.ok():
+            node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-
-
 
 if __name__ == '__main__':
     main()

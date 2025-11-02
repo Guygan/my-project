@@ -7,8 +7,7 @@ Panels:
         - /Global Options1
         - /TF1/Frames1
         - /TF1/Tree1
-        - /Map1
-        - /Map1/Update Topic1
+        - /LaserScan1
       Splitter Ratio: 0.5833333134651184
     Tree Height: 225
   - Class: rviz_common/Selection
@@ -99,6 +98,8 @@ Visualization Manager:
           Value: true
         lidar_stand:
           Value: true
+        map:
+          Value: true
         odom:
           Value: true
         right_track:
@@ -113,7 +114,25 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Tree:
-        {}
+        map:
+          odom:
+            base_footprint:
+              base_link:
+                imu_link:
+                  {}
+                left_track:
+                  {}
+                left_wheel:
+                  {}
+                right_track:
+                  {}
+                right_wheel:
+                  {}
+                top_plate:
+                  lidar_stand:
+                    lidar_plate:
+                      lidar_link:
+                        {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -569,11 +588,11 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 54
+      Scale: 21.65811538696289
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz_default_plugins)
-      X: -5.409999847412109
-      Y: 0
+      X: -11.489469528198242
+      Y: 4.828943729400635
     Saved: ~
 Window Geometry:
   Displays:
@@ -597,5 +616,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1610
-  X: 1392
-  Y: 222
+  X: 1363
+  Y: 195

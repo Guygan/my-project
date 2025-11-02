@@ -37,13 +37,6 @@
     </sensor>
   </gazebo>
 
-  <!-- Joint State Publisher -->
-  <gazebo>
-    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
-      <topic>joint_states</topic>
-    </plugin>
-  </gazebo>
-
   <!-- Differential Drive -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
@@ -53,6 +46,8 @@
       <wheel_radius>${wheel_radius}</wheel_radius>
       <topic>cmd_vel</topic>
       <odometry_topic>odom</odometry_topic>
+
+      <publish_tf>true</publish_tf>
       <tf_topic>tf</tf_topic>
       <frame_id>odom</frame_id>
       <child_frame_id>base_footprint</child_frame_id>

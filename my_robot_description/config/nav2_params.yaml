@@ -1,4 +1,4 @@
-# nav2_params.yaml (Final Corrected Version)
+# nav2_params.yaml (ฉบับแก้ไขสมบูรณ์ v3 - แก้ไขการต่อท่อ cmd_vel และระยะเบรก)
 
 amcl:
   ros__parameters:
@@ -7,16 +7,27 @@ amcl:
     global_frame_id: "map"
     odom_frame_id: "odom"
     scan_topic: "/scan_corrected"
+    set_initial_pose: true
+    save_pose_period: -1.0
     initial_pose:
       x: 0.0
       y: 0.0
       z: 0.0
       yaw: 0.0
+    min_particles: 500
+    max_particles: 3000
+    odom_model_type: "diff"
+    odom_alpha1: 0.05
+    odom_alpha2: 0.05
+    odom_alpha3: 0.05
+    odom_alpha4: 0.05
+    update_min_d: 0.1
+    update_min_a: 0.1
 
 map_server:
   ros__parameters:
     use_sim_time: true
-    yaml_filename: "/home/guygan/ros2_ws/src/my_robot_description/maps/my_map.yaml"
+    yaml_filename: "/home/guygan/ros2_ws/src/my_robot_description/maps/my_slam_map.yaml"
 
 planner_server:
   ros__parameters:
@@ -30,9 +41,12 @@ planner_server:
 controller_server:
   ros__parameters:
     use_sim_time: true
-    controller_frequency: 20.0
+    controller_frequency: 5.0
     odom_topic: "/odom"
-    cmd_vel_out_topic: "cmd_vel_nav"
+    
+    # --- [✨ 1. แก้ไข] เปลี่ยนจาก "cmd_vel" เป็น "cmd_vel_raw" (ส่งไปให้ Smoother) ---
+    cmd_vel_out_topic: "cmd_vel_raw"
+    # -------------------------------------------------------------------------
 
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
@@ -41,7 +55,7 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.5
-      movement_time_allowance: 10.0
+      movement_time_allowance: 20.0 
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -49,46 +63,41 @@ controller_server:
       yaw_goal_tolerance: 0.25
       stateful: false
 
-    # ===================================================================
-    # ✨ DWB Controller Configuration ✨
-    # ===================================================================
     FollowPath:
       plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: true
-      min_vel_x: -0.2  # อนุญาตให้ถอยหลังได้ (ถ้าต้องการ)
+      min_vel_x: -0.2
       min_vel_y: 0.0
-      max_vel_x: 0.26  # ควรจะสอดคล้องกับ max_velocity ของ velocity_smoother
+      max_vel_x: 0.26
       max_vel_y: 0.0
       max_vel_theta: 1.0
       min_speed_xy: 0.05
       max_speed_xy: 0.26
       min_speed_theta: 0.2
-
-      # Acceleration Limits
       acc_lim_x: 2.5
       acc_lim_y: 0.0
       acc_lim_theta: 3.2
       decel_lim_x: -2.5
       decel_lim_y: 0.0
       decel_lim_theta: -3.2
-
-      # Goal Tolerance
       xy_goal_tolerance: 0.25
       trans_stopped_velocity: 0.1
       theta_stopped_velocity: 0.1
-      
-      # Forward Simulation Parameters
-      sim_time: 1.0 # เวลาที่จะจำลองเส้นทางไปข้างหน้า (วินาที)
+      sim_time: 1.0
       sim_granularity: 0.025
-      vx_samples: 8
+      vx_samples: 10
       vy_samples: 5
-      vtheta_samples: 12
-
-      # Trajectory Scoring using Critics
-      # นี่คือหัวใจของ DWB เราต้องบอกว่าจะให้คะแนนเส้นทางแต่ละเส้นอย่างไร
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
-      
-      # --- Weights for each critic ---
+      vtheta_samples: 20
+      critics:
+        [
+          "RotateToGoal",
+          "Oscillation",
+          "BaseObstacle",
+          "GoalAlign",
+          "PathAlign",
+          "PathDist",
+          "GoalDist",
+        ]
       BaseObstacle.scale: 32.0
       PathAlign.scale: 32.0
       PathAlign.forward_point_distance: 0.1
@@ -97,7 +106,7 @@ controller_server:
       PathDist.scale: 32.0
       GoalDist.scale: 24.0
       RotateToGoal.scale: 32.0
-      Oscillation.scale: 0.0
+      Oscillation.scale: 2.0
 
 bt_navigator:
   ros__parameters:
@@ -112,6 +121,11 @@ velocity_smoother:
     max_velocity: [0.26, 0.0, 1.0]
     min_velocity: [0.0, 0.0, -1.0]
     accel_lim_v: [2.5, 0.0, 3.2]
+    
+    # --- [✨ 2. แก้ไข] เพิ่ม 2 บรรทัดนี้ เพื่อต่อท่อ (Raw -> Smoothed) ---
+    input_topic: "cmd_vel_raw"
+    output_topic: "cmd_vel_smoothed"
+    # ------------------------------------------------------------
 
 behavior_server:
   ros__parameters:
@@ -137,36 +151,39 @@ global_costmap:
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
       observation_sources: "scan"
-      scan: { topic: "/scan_corrected", data_type: "LaserScan", clearing: true, marking: true }
+      scan:
+        topic: "/scan_corrected"
+        data_type: "LaserScan"
+        clearing: true
+        marking: true
+        sensor_frame: "lidar_link"
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.2
+      inflation_radius: 0.55
 
 local_costmap:
   ros__parameters:
     use_sim_time: true
-    
-    # === ✨ บอกให้ Local Costmap ใช้อ้างอิงกับ Odom แทน Map ✨ ===
-    global_frame: "odom" 
-    
+    global_frame: "odom"
     robot_base_frame: "base_footprint"
-
-    # === ✨ และเอา Static Layer ที่ต้องใช้ Map ออกไป ✨ ===
-    plugins: ["obstacle_layer", "inflation_layer"]
-
-    width: 3
-    height: 3
+    footprint: "[[0.25, 0.25], [0.25, -0.25], [-0.25, -0.25], [-0.25, 0.25]]"
+    width: 5
+    height: 5
     resolution: 0.05
-    
+    plugins: ["obstacle_layer", "inflation_layer"]
     obstacle_layer:
       plugin: "nav2_costmap_2d::ObstacleLayer"
-      footprint_clearing_enabled: false
+      footprint_clearing_enabled: true
       observation_sources: "scan"
-      scan: { topic: "/scan_corrected", data_type: "LaserScan", clearing: true, marking: true }
-      
+      scan:
+        topic: "/scan_corrected"
+        data_type: "LaserScan"
+        clearing: true
+        marking: true
+        sensor_frame: "lidar_link"
     inflation_layer:
       plugin: "nav2_costmap_2d::InflationLayer"
-      inflation_radius: 0.1
+      inflation_radius: 0.15
       cost_scaling_factor: 3.0
 
 collision_monitor:
@@ -174,26 +191,31 @@ collision_monitor:
     use_sim_time: true
     base_frame_id: "base_footprint"
     odom_frame_id: "odom"
-    cmd_vel_in_topic: "cmd_vel_smoothed"
-    cmd_vel_out_topic: "cmd_vel"
+    cmd_vel_in_topic: "cmd_vel_smoothed" # (อันนี้ถูกต้องแล้ว รับจาก Smoother)
+    cmd_vel_out_topic: "cmd_vel"          # (อันนี้ถูกต้องแล้ว ส่งไปให้หุ่น)
     transform_tolerance: 0.5
     source_timeout: 5.0
     polygons: ["PolygonStop", "PolygonSlow"]
+    
+    # --- [✨ 3. แก้ไข] เปลี่ยนระยะเบรก (40cm -> 50cm) ---
     PolygonStop:
       type: "polygon"
-      points: "[[0.4, 0.3], [0.4, -0.3], [0.0, -0.3], [0.0, 0.3]]"
+      points: "[[0.5, 0.3], [0.5, -0.3], [0.0, -0.3], [0.0, 0.3]]" # <-- 0.5
       action_type: "stop"
       min_points: 4
       visualize: true
       polygon_pub_topic: "polygon_stop"
+    # --- [✨ 3. แก้ไข] เปลี่ยนระยะชะลอ (60cm -> 70cm) ---
     PolygonSlow:
       type: "polygon"
-      points: "[[0.6, 0.4], [0.6, -0.4], [0.0, -0.4], [0.0, 0.4]]"
+      points: "[[0.7, 0.4], [0.7, -0.4], [0.0, -0.4], [0.0, 0.4]]" # <-- 0.7
       action_type: "slowdown"
       min_points: 4
       slowdown_ratio: 0.3
       visualize: true
       polygon_pub_topic: "polygon_slowdown"
+    # ----------------------------------------------------
+      
     observation_sources: ["scan"]
     scan:
       type: "scan"
@@ -213,3 +235,28 @@ lifecycle_manager_navigation:
       - "collision_monitor"
       - "velocity_smoother"
       - "docking_server"
+      - "recoveries_server"
+
+recoveries_server:
+  ros__parameters:
+    use_sim_time: True
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/footprint
+    cycle_frequency: 10.0
+    recovery_plugins:
+      - name: "spin"
+        type: "nav2_recoveries::Spin"
+      - name: "backup"
+        type: "nav2_recoveries::BackUp"
+      - name: "wait"
+        type: "nav2_recoveries::Wait"
+    global_frame: map
+    robot_base_frame: base_footprint
+    spin:
+      plugin: "nav2_recoveries::Spin"
+      simulation_rate: 20.0
+    backup:
+      plugin: "nav2_recoveries::BackUp"
+      simulation_rate: 20.0
+    wait:
+      plugin: "nav2_recoveries::Wait"

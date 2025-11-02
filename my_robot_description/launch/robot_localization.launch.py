@@ -1,47 +1,96 @@
-# my_robot_description/launch/robot_localization.launch.py (Corrected Version)
+# In file: launch/robot_localization.launch.py
+# (FIXED: .items() bug AND Nav2 Crash)
 
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription,
+    LogInfo, RegisterEventHandler, TimerAction
+)
+from launch.event_handlers import OnProcessExit, OnProcessStart
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
-from launch_ros.actions import LifecycleNode
+from launch_ros.parameter_descriptions import ParameterValue
+from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
-    # --- 1. Package and File Path Definitions ---
     pkg_dir = get_package_share_directory('my_robot_description')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+    nav2_bringup_pkg = get_package_share_directory('nav2_bringup')
 
-    world_path = os.path.join(pkg_dir, 'worlds', 'test_world.sdf')
-    map_path = os.path.join(pkg_dir, 'maps', 'my_map.yaml')
-    nav2_params_path = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
-    ekf_config_path = os.path.join(pkg_dir, 'config', 'ekf.yaml')
+    # --- File Paths ---
+    urdf_path = os.path.join(pkg_dir, 'urdf', 'my_robot.urdf.xacro')
+    bridge_config_path = os.path.join(pkg_dir, 'config', 'gz_bridge.yaml')
     rviz_config_path = os.path.join(pkg_dir, 'rviz', 'my_nav2_view.rviz')
+    ekf_config_path = os.path.join(pkg_dir, 'config', 'ekf.yaml')
+    nav2_params_path = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
 
-    # --- 2. Launch Configuration Variables ---
+    # --- Launch Arguments ---
+    declare_world_arg = DeclareLaunchArgument(
+        'world',
+        default_value=os.path.join(pkg_dir, 'worlds', 'slam_world.sdf'),
+        description='Full path to the world file to load'
+    )
+    declare_map_arg = DeclareLaunchArgument(
+        'map',
+        default_value=os.path.join(pkg_dir, 'maps', 'my_slam_map.yaml'),
+        description='Full path to map file'
+    )
+    declare_use_sim_time_cmd = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use simulation (Gazebo) clock if true'
+    )
     use_sim_time = LaunchConfiguration('use_sim_time')
     world = LaunchConfiguration('world')
-    map_file = LaunchConfiguration('map')
-    params_file = LaunchConfiguration('params_file')
+    map_yaml_file = LaunchConfiguration('map')
 
-    # --- 3. Node and Action Definitions ---
-
-    start_gazebo_and_robot = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(pkg_dir, 'launch', 'gazebo.launch.py')),
-        launch_arguments={'world': world, 'use_sim_time': use_sim_time}.items()
+    robot_description_content = ParameterValue(
+        Command(['xacro ', urdf_path]),
+        value_type=str
     )
 
-    frame_fixer = Node(
-        package='my_robot_description',
-        executable='frame_fixer',
-        name='scan_frame_fixer',
+    # --- Gazebo Simulation ---
+    start_gazebo_cmd = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            PathJoinSubstitution([
+                FindPackageShare('ros_gz_sim'), 'launch', 'gz_sim.launch.py'
+            ])
+        ]),
+        launch_arguments={'gz_args': ['-r ', world]}.items() 
+    )
+
+    # --- Core Robot Nodes ---
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
         output='screen',
-        parameters=[{'use_sim_time': use_sim_time}]
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'robot_description': robot_description_content
+        }]
     )
 
-    robot_localization = Node(
+    spawn_robot_node = Node(
+        package='ros_gz_sim',
+        executable='create',
+        arguments=['-topic', 'robot_description', '-name', 'my_robot',
+                   '-x', '0.0', '-y', '0.0', '-z', '0.1', '-Y', '0.0'
+                   ],
+        output='screen'
+    )
+
+    # --- Bridge, EKF, Frame Fixer Nodes ---
+    gz_ros_bridge_node = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='gz_ros_bridge',
+        parameters=[{'config_file': bridge_config_path, 'use_sim_time': use_sim_time}],
+        output='screen'
+    )
+
+    robot_localization_node = Node(
         package='robot_localization',
         executable='ekf_node',
         name='ekf_filter_node',
@@ -49,69 +98,114 @@ def generate_launch_description():
         parameters=[ekf_config_path, {'use_sim_time': use_sim_time}]
     )
 
-    velocity_smoother_node = LifecycleNode(
-        package='nav2_velocity_smoother',
-        executable='velocity_smoother',
-        name='velocity_smoother',
-        namespace='',  
+    frame_fixer_node = Node(
+        package='my_robot_description',
+        executable='frame_fixer',
+        name='scan_frame_fixer',
         output='screen',
-        parameters=[params_file],
-        remappings=[('cmd_vel', 'cmd_vel_nav'),
-                    ('cmd_vel_smoothed', 'cmd_vel')]
+        parameters=[{'use_sim_time': use_sim_time}]
     )
 
-    collision_monitor_node = LifecycleNode(
-        package='nav2_collision_monitor',
-        executable='collision_monitor',
-        name='collision_monitor',
-        namespace='',
+    # --- Helper Node Definitions (Detector, Monitor, Sonar, Actions) ---
+    interactive_stuck_detector_node = Node(
+        package='my_robot_description',
+        executable='interactive_stuck_detector',
+        name='interactive_stuck_detector',
         output='screen',
-        parameters=[params_file]
+        emulate_tty=True,
+        parameters=[{'use_sim_time': use_sim_time}]
     )
 
+    goal_monitor_node = Node( 
+        package='my_robot_description',
+        executable='goal_monitor_node',
+        name='goal_monitor_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    laser_to_sonar_node = Node(
+        package='my_robot_description',
+        executable='laser_to_sonar_node',
+        name='laser_to_sonar_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    return_to_home_node = Node(
+        package='my_robot_description',
+        executable='return_to_home_node',
+        name='return_to_home_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[{'use_sim_time': use_sim_time}]
+    )
+
+    # --- Nav2 Stack ---
+    # --- [✨✨✨ นี่คือจุดแก้ไข Nav2 Crash ✨✨✨] ---
     start_nav2 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(os.path.join(nav2_bringup_dir, 'launch', 'bringup_launch.py')),
+        PythonLaunchDescriptionSource(
+            os.path.join(nav2_bringup_pkg, 'launch', 'bringup_launch.py')),
         launch_arguments={
-            'map': map_file,
             'use_sim_time': use_sim_time,
-            'params_file': params_file,
-            'use_velocity_smoother': 'False'
-        }.items()
+            'params_file': nav2_params_path,
+            'map': map_yaml_file,
+            'autostart': 'true',
+            'use_rviz': 'false',
+            'launch_collision_monitor': 'true',    # <-- แก้เป็น true
+            'launch_velocity_smoother': 'true',    # <-- แก้เป็น true
+            'launch_docking_server': 'true',       # <-- แก้เป็น true
+            'launch_smoother_server': 'false',
+            'launch_waypoint_follower': 'false'
+        }.items() 
     )
+    # --- [✨✨✨ จบส่วนแก้ไข ✨✨✨] ---
 
-    start_rviz = Node(
+    # --- RViz ---
+    rviz_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
-        arguments=['-d', rviz_config_path],
-        parameters=[{'use_sim_time': use_sim_time}],
-        remappings=[('/scan', '/scan_corrected')],
-        output='screen'
-    )
-
-    keyboard_teleop = Node(
-        package='teleop_twist_keyboard',
-        executable='teleop_twist_keyboard',
-        name='teleop_twist_keyboard',
         output='screen',
-        prefix='xterm -e',
-        # ✨ KEY FIX: Remap to the final cmd_vel topic
-        remappings=[('cmd_vel', '/cmd_vel')]
+        arguments=['-d', rviz_config_path],
+        parameters=[{'use_sim_time': use_sim_time}]
     )
 
-    # --- 4. Assemble Launch Description ---
-    return LaunchDescription([
-        DeclareLaunchArgument('use_sim_time', default_value='true'),
-        DeclareLaunchArgument('world', default_value=world_path),
-        DeclareLaunchArgument('map', default_value=map_path),
-        DeclareLaunchArgument('params_file', default_value=nav2_params_path),
+    # --- ลำดับการรัน ---
+    start_bridge_handler = TimerAction(period=2.0, actions=[
+        LogInfo(msg='Gazebo ready, starting Bridge...'),
+        gz_ros_bridge_node,
+        TimerAction(period=1.0, actions=[
+             LogInfo(msg='Bridge ready, starting EKF & Frame Fixer...'),
+             robot_localization_node,
+             frame_fixer_node,
+        ])
+    ])
 
-        start_gazebo_and_robot,
-        frame_fixer,
-        robot_localization,
-        start_nav2,
-        start_rviz,
-        velocity_smoother_node,   
-        collision_monitor_node,  # ✨ KEY FIX: Enabled this node
-        keyboard_teleop
+    start_nav2_rviz_handler = RegisterEventHandler(
+        OnProcessStart(
+            target_action=robot_localization_node,
+            on_start=[
+                LogInfo(msg='EKF started, starting Nav2, RViz, and ALL Helper Nodes...'),
+                start_nav2, 
+                rviz_node,
+                interactive_stuck_detector_node,
+                goal_monitor_node, 
+                laser_to_sonar_node,
+                return_to_home_node
+            ]
+        )
+    )
+
+    return LaunchDescription([
+        declare_world_arg,
+        declare_map_arg,
+        declare_use_sim_time_cmd,
+        start_gazebo_cmd,
+        robot_state_publisher_node,
+        spawn_robot_node,
+        start_bridge_handler,
+        start_nav2_rviz_handler
     ])

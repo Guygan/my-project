@@ -10,7 +10,6 @@ ekf_filter_node:
     # --- แก้ไขส่วน TF Frames ให้ถูกต้อง ---
     # EKF มีหน้าที่สร้าง odom -> base_link, ไม่ควรยุ่งกับ map frame
     publish_tf: true
-    map_frame: map # <--- (แก้ไข) แก้ไขจุดที่สำคัญที่สุด
     odom_frame: odom
     base_link_frame: base_footprint
     world_frame: odom
