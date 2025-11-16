@@ -1,0 +1,8 @@
+# Goal
+bool start
+---
+# Result
+string final_decision  # เช่น "go_home", "go_checkpoint", "ui_cancelled"
+---
+# Feedback
+string status_text  # เช่น "waiting_for_user" หรือ "cancelled"

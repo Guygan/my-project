@@ -1,12 +1,10 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <!-- Main sensor manager -->
   <gazebo>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors"/>
   </gazebo>
 
-  <!-- Lidar Sensor -->
   <gazebo reference="lidar_link">
     <sensor name="lidar_link" type="gpu_lidar">
       <topic>scan</topic>
@@ -29,15 +27,13 @@
     </sensor>
   </gazebo>
 
-  <!-- IMU Sensor Plugin -->
-  <gazebo reference="imu_link">
-    <sensor name="imu_sensor" type="imu">
-      <topic>imu</topic>
+  <gazebo>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
+      <link_name>imu_link</link_name> <topic>/imu</topic>
       <update_rate>50</update_rate>
-    </sensor>
+    </plugin>
   </gazebo>
 
-  <!-- Differential Drive -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
@@ -45,9 +41,10 @@
       <wheel_separation>${body_width + 2*track_width + wheel_thickness}</wheel_separation>
       <wheel_radius>${wheel_radius}</wheel_radius>
       <topic>cmd_vel</topic>
-      <odometry_topic>odom</odometry_topic>
-
-      <publish_tf>true</publish_tf>
+      
+      <odometry_topic>odom</odometry_topic> 
+      <publish_tf>false</publish_tf>
+      
       <tf_topic>tf</tf_topic>
       <frame_id>odom</frame_id>
       <child_frame_id>base_footprint</child_frame_id>

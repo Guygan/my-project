@@ -1,0 +1,10 @@
+# Goal
+bool start
+---
+# Result
+bool success
+string message  # เช่น "Plan H+ completed" หรือ "Failed to reach home"
+---
+# Feedback
+float32 progress
+string current_step  # เช่น "SPIN", "NAV_HOME"
